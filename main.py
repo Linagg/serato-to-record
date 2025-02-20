@@ -1,55 +1,50 @@
-import os
-import xml.etree.ElementTree as ET
+import re
 
-# Estructura del proyecto
-PROJECT_DIR = "DJConverter"
-SERATO_DIR = os.path.join(PROJECT_DIR, "data", "serato")
-SUBCRATES_DIR = os.path.join(SERATO_DIR, "Subcrates")
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "rekordbox.xml")
+def clean_text(text):
+    """Corrige los espacios en los metadatos eliminando separaciones innecesarias."""
+    text = re.sub(r'\s+', ' ', text).strip()  # Eliminar espacios repetidos
+    text = re.sub(r'(?<=\b[A-Za-z]) (?=[A-Za-z]\b)', '', text)  # Unir letras separadas
+    text = re.sub(r'(?<=\d) (?=\d)', '', text)  # Unir números separados incorrectamente
+    return text
 
-# Crear estructura de carpetas
-def setup_directories():
-    os.makedirs(SERATO_DIR, exist_ok=True)
-    os.makedirs(SUBCRATES_DIR, exist_ok=True)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# Función para leer archivos .crate
-def read_crate_files():
-    tracks = []
-    for file in os.listdir(SUBCRATES_DIR):
-        if file.endswith(".crate"):
-            with open(os.path.join(SUBCRATES_DIR, file), "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-                for line in lines:
-                    if line.strip():  # Evita líneas vacías
-                        tracks.append(line.strip())
-    return tracks
-
-# Función para generar un archivo rekordbox.xml
-def generate_rekordbox_xml(tracks):
-    if not tracks:
-        print("No se encontraron pistas para convertir.")
-        return
+def extract_metadata(text):
+    metadata = []
     
-    root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    collection = ET.SubElement(root, "COLLECTION")
-    collection.set("Entries", str(len(tracks)))
+    # Buscar posibles metadatos clave
+    tracks = re.findall(r'tsng\s+([^t]+)tlen\s+([^t]+)tsiz\s+([^t]+) Btbit\s+([^t]+) stsmp\s+([^t]+) ktbpm\s+([^t]+)tadd\s+([^t]+)tkey\s+([A-G#b]+)', text)
     
-    for i, filepath in enumerate(tracks, start=1):
-        track = ET.SubElement(collection, "TRACK", 
-                              TrackID=str(i),
-                              Name=os.path.basename(filepath),
-                              Location=f"file://localhost/{filepath.replace('\\', '/')}",
-                              BPM="0.00",
-                              Genre="Unknown")
+    for track in tracks:
+        metadata.append({
+            "Title": clean_text(track[0].replace('_', ' ')),
+            "Duration": clean_text(track[1]),
+            "Size (MB)": clean_text(track[2]),
+            "Bitrate (kbps)": clean_text(track[3]),
+            "Sample Rate (kHz)": clean_text(track[4]),
+            "BPM": clean_text(track[5]),
+            "Added Timestamp": clean_text(track[6]),
+            "Key": clean_text(track[7])
+        })
     
-    tree = ET.ElementTree(root)
-    tree.write(OUTPUT_FILE)
-    print(f"Archivo {OUTPUT_FILE} generado con éxito.")
+    return metadata
 
-# Ejecutar el proceso
+def read_serato_database(file_path):
+    with open(file_path, "rb") as file:
+        data = file.read()
+    
+    readable_text = "".join(chr(c) if 32 <= c < 127 or c in (10, 13) else " " for c in data)
+    readable_text = re.sub(r'\s+', ' ', readable_text)  # Limpiar espacios extras
+    
+    metadata = extract_metadata(readable_text)
+    
+    if metadata:
+        for track in metadata:
+            print("------------------------------------")
+            for key, value in track.items():
+                print(f"{key}: {value}")
+    else:
+        print("No metadata extracted.")
+
 if __name__ == "__main__":
-    setup_directories()
-    tracks = read_crate_files()
-    generate_rekordbox_xml(tracks)
+    file_path = "C:/Users/Ilandaluce/Desarrollos/Python/Personal/serato-to-record/DJConverter/data/serato/database V2"  # Reemplázalo con la ruta correcta si es necesario
+    read_serato_database(file_path)
+
